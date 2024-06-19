@@ -268,7 +268,7 @@ def parse_knet_data(filepath):
                 SAMPLE_DATA = binascii.hexlify(fileContent[CurrentBinaryStart:CurrentBinaryStart+2])
                 SAMPLE_SIZE_TYPE = SAMPLE_DATA[0:1].decode('ascii')
                 NUMBER_OF_SAMPLE = SAMPLE_DATA[1:].decode('ascii')
-                NUMBER_OF_SAMPLE = hex_to_12bit_unsigned(NUMBER_OF_SAMPLE)
+                NUMBER_OF_SAMPLE = HexToBinary(NUMBER_OF_SAMPLE)
                 CurrentBinaryStart += 2
 
                 if NUMPY_INIT == 0:
@@ -306,13 +306,14 @@ def parse_knet_data(filepath):
         GROUND_MOTION_ARRAY[1] = GROUND_MOTION_ARRAY[1] - EW_OFFSET
         GROUND_MOTION_ARRAY[1] = GROUND_MOTION_ARRAY[1] *  (EW_SCALE_FACTOR_NUMERATOR/EW_SCALE_FACTOR_DENOMINATOR) 
 
-        GROUND_MOTION_ARRAY[2] = GROUND_MOTION_ARRAY[2] - EW_OFFSET
-        GROUND_MOTION_ARRAY[2] = GROUND_MOTION_ARRAY[2] *  (EW_SCALE_FACTOR_NUMERATOR/EW_SCALE_FACTOR_DENOMINATOR)
+        GROUND_MOTION_ARRAY[2] = GROUND_MOTION_ARRAY[2] - UD_OFFSET
+        GROUND_MOTION_ARRAY[2] = GROUND_MOTION_ARRAY[2] *  (UD_SCALE_FACTOR_NUMERATOR/UD_SCALE_FACTOR_DENOMINATOR)
 
         GROUND_MOTION_ARRAY = GROUND_MOTION_ARRAY[:,:-1]
 
         metadata = {}
         metadata["Earthquake"] = {}
+        metadata["Earthquake"]["OT"] = EQ_Depth
         metadata["Earthquake"]["EQScale"] = EQ_Scale
         metadata["Earthquake"]["Latitude"] = EQ_Latitude
         metadata["Earthquake"]["Longitude"] = EQ_Longitude
