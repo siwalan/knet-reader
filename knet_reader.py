@@ -3,9 +3,30 @@ import binascii
 import numpy as np
 import os
 import json
+from datetime import datetime, timedelta
 
 ##### HELPER FUNCTION ######
 
+
+def parse_earthquake_time(time_str):
+    # Splitting the time string into parts
+    year = int(time_str[0:4])
+    month = int(time_str[4:6])
+    day = int(time_str[6:8])
+    hour = int(time_str[8:10])
+    minute = int(time_str[10:12])
+    second = int(time_str[12:14])
+    tenths_of_second = int(time_str[14:16])
+
+    # Create a datetime object
+    dt = datetime(year, month, day, hour, minute, second)
+    
+    # Add tenths of a second (convert tenths to microseconds for datetime)
+    microsecond = tenths_of_second * 100000  # 1 tenth of a second is 100,000 microseconds
+    dt += timedelta(microseconds=microsecond)
+
+    return dt
+    
 def BCDLatToFloat(BCDLat):
     BCDLat = BCDLat.decode('ASCII')
     BCDLat = BCDLat.lower()
@@ -91,6 +112,9 @@ def HexToBinary(hex_string):
         return decimal_value
     else:
         raise ValueError("INVALID VALUE")
+
+
+##### MAIN FUNCTION ######
 
 def parse_knet_data(filepath):
 
@@ -221,6 +245,7 @@ def parse_knet_data(filepath):
         CurrentBinaryStart += 2
 
         EQ_OT = binascii.hexlify(fileContent[CurrentBinaryStart:CurrentBinaryStart+8])  
+        EQOT = parse_earthquake_time(EQ_OT.decode('ASCII'))
         CurrentBinaryStart += 8
         EQ_LatitudeHex  = binascii.hexlify(fileContent[CurrentBinaryStart:CurrentBinaryStart+4]) 
         EQ_Latitude = BCDLatToFloat(EQ_LatitudeHex)
@@ -313,7 +338,7 @@ def parse_knet_data(filepath):
 
         metadata = {}
         metadata["Earthquake"] = {}
-        metadata["Earthquake"]["OT"] = EQ_Depth
+        metadata["Earthquake"]["OT"] =(EQOT.isoformat(timespec='milliseconds'))
         metadata["Earthquake"]["EQScale"] = EQ_Scale
         metadata["Earthquake"]["Latitude"] = EQ_Latitude
         metadata["Earthquake"]["Longitude"] = EQ_Longitude
