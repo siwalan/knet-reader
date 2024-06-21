@@ -5,10 +5,29 @@ import os
 import json
 from datetime import datetime, timedelta
 
-##### HELPER FUNCTION ######
+##### HELPER FUNCTION ######    
+def BCDToFloat(BCD,NumDigit=8, SigDigit=5):
+    if not isinstance(BCD,str):
+        BCD = BCD.decode("ASCII")
+    BCD = BCD.lower()
+    DecimalReduction = 0
+    for x in range(len(BCD)-1,0,-1):
+        if BCD[x] == 'e':
+            DecimalReduction += 1
+    
+    Sign = 1
+    StartLStrip=0
+    if not BCD[0].isdigit():
+        StartLStrip=1
+        if BCD[0] == 'd':
+            Sign = -1   
+    
+    ZeroPadding = len(BCD) - len(BCD[StartLStrip:].lstrip("0"))
+    NumberOfDigits = NumDigit - DecimalReduction
+    SignificantFigures = SigDigit - DecimalReduction
+    return round(int(BCD[(ZeroPadding):NumberOfDigits]) * 10**-SignificantFigures, SignificantFigures)
 
-
-def parse_earthquake_time(time_str):
+def ParseTime(time_str):
     # Splitting the time string into parts
     year = int(time_str[0:4])
     month = int(time_str[4:6])
@@ -27,84 +46,6 @@ def parse_earthquake_time(time_str):
 
     return dt
     
-def BCDLatToFloat(BCDLat):
-    BCDLat = BCDLat.decode('ASCII')
-    BCDLat = BCDLat.lower()
-    DecimalReduction = 0
-    for x in range(len(BCDLat)-1,0,-1):
-        if BCDLat[x] == "e":
-            DecimalReduction += 1
-    ZeroPadding = len(BCDLat) - len(BCDLat.lstrip("0"))
-    NumberOfDigits = 8 - DecimalReduction
-    SignificantFigures = 5 - DecimalReduction
-    
-    return round(int(BCDLat[ZeroPadding:NumberOfDigits]) * 10**-SignificantFigures,SignificantFigures)
-
-def BCDLongToFloat(BCDLong):
-    BCDLong = BCDLong.decode('ASCII')
-    BCDLong = BCDLong.lower()
-    DecimalReduction = 0
-    for x in range(len(BCDLong)-1,0,-1):
-        if BCDLong[x] == "e":
-            DecimalReduction += 1
-    ZeroPadding = len(BCDLong) - len(BCDLong.lstrip("0"))
-    NumberOfDigits = 8 - DecimalReduction
-    SignificantFigures = 5 - DecimalReduction
-    
-    return round(int(BCDLong[ZeroPadding:NumberOfDigits]) * 10**-SignificantFigures, SignificantFigures)
-
-def BCDElevationToFloat(BCDElevation):
-    BCDElevation = BCDElevation.decode('ASCII')
-    BCDElevation = BCDElevation.lower()
-    DecimalReduction = 0
-    for x in range(len(BCDElevation)-1,0,-1):
-        if BCDElevation[x] == "e":
-            DecimalReduction += 1
-    if BCDElevation[0] == 'd':
-        Sign = -1
-    else:
-        Sign = 1
-    ZeroPadding = len(BCDElevation[1:]) - len(BCDElevation[1:].lstrip("0"))
-    NumberOfDigits = 8 - DecimalReduction 
-    SignificantFigures = 2 - DecimalReduction
-    
-    return round(Sign * int(BCDElevation[ZeroPadding:NumberOfDigits]) * 10**-SignificantFigures,SignificantFigures)
-
-def BCDEQDepth(BCDElevation):
-    BCDElevation = BCDElevation.decode('ASCII')
-    BCDElevation = BCDElevation.lower()
-    DecimalReduction = 0
-    for x in range(len(BCDElevation)-1,0,-1):
-        if BCDElevation[x] == "e":
-            DecimalReduction += 1
-    if BCDElevation[0] == 'd':
-        Sign = -1
-    else:
-        Sign = 1
-    ZeroPadding = len(BCDElevation[1:]) - len(BCDElevation[1:].lstrip("0"))
-    NumberOfDigits = 8 - DecimalReduction 
-    SignificantFigures = 3 - DecimalReduction
-    
-    return round(Sign * int(BCDElevation[ZeroPadding:NumberOfDigits]) * 10**-SignificantFigures,SignificantFigures)
-
-
-def BCDEQScale(BCDEQScale):
-    BCDEQScale = BCDEQScale.decode('ASCII')
-    BCDEQScale = BCDEQScale.lower()
-    DecimalReduction = 0
-    for x in range(len(BCDEQScale)-1,0,-1):
-        if BCDEQScale[x] == "e":
-            DecimalReduction += 1
-    if BCDEQScale[0] == 'd':
-        Sign = -1
-    else:
-        Sign = 1
-    NumberOfDigits = 2 - DecimalReduction 
-    SignificantFigures = 1 - DecimalReduction
-    
-    return round(Sign * int(BCDEQScale[0:NumberOfDigits]) * 10**-SignificantFigures,SignificantFigures)
-
-
 def HexToBinary(hex_string):
     decimal_value = int(hex_string, 16)
     
@@ -113,240 +54,247 @@ def HexToBinary(hex_string):
     else:
         raise ValueError("INVALID VALUE")
 
+def KNETUnitHandler(UnitBytes):
+    UnitBytes = UnitBytes[0]
+    NegativePowerOf = (UnitBytes >> 4) & 0x0F
+    Unit = UnitBytes & 0x0F
+
+    if Unit == 1:
+        Unit = "m"
+    elif Unit == 2:
+        Unit = "m/s"
+    elif Unit == 3:
+        Unit = "m/s^2"
+    else:
+        Unit = "Undefined"
+
+    return NegativePowerOf, Unit
+
+
 
 ##### MAIN FUNCTION ######
 
-def parse_knet_data(filepath):
+def parse_knet_data(filepath,CONVERT_RESULT=False):
 
     if os.path.splitext(filepath)[1] == ".kwin":
         with open(filepath, mode='rb') as file: # b is important -> binary
             fileContent = file.read()
 
-        GM_DIRECTION = ["NS","EW","UD"]
-        GM_TYPE = 0
-        GROUND_MOTION_ARRAY = np.zeros((3,1))
-        DIRECTION_TIME_SERIES = [0,0,0]
-
-        ## File Sanity Check - Strong WIN32 Header Block
-        CurrentBinaryStart = 0
-        assert struct.unpack_from('>BBBB', fileContent, CurrentBinaryStart) == (10,2,0,0)
-        CurrentBinaryStart += 4
+        ## WIN32 Header Block
+        Pointer = 0
+        assert struct.unpack_from('>BBBB', fileContent, Pointer) == (10,2,0,0)
+        Pointer += 4
+        
         ## Information Block 
+        
         ## Information Block Header
-        assert struct.unpack_from('>BBBB', fileContent, CurrentBinaryStart)  == (12,0,0,0)
-        CurrentBinaryStart += 4
-        OrganizationID, ObservationNetwork, = struct.unpack_from('>BB', fileContent, CurrentBinaryStart) 
-        CurrentBinaryStart += 2
-        SeismographNumber = struct.unpack_from('>H', fileContent, CurrentBinaryStart) 
-        CurrentBinaryStart += 2
-        DataBlockLength = struct.unpack_from('>I', fileContent, CurrentBinaryStart) 
-        CurrentBinaryStart += 4
-
+        assert struct.unpack_from('>BBBB', fileContent, Pointer)  == (12,0,0,0)
+        Pointer += 4
+        
+        OrganizationID, ObservationNetwork, SeismographNumber, DataBlockLength = struct.unpack_from('>BBHI', fileContent, Pointer) 
+        Pointer += 8
+        
         # Information data block (1) Observation point information (three-component surface observation point)
-        InformationType  = struct.unpack_from('>H', fileContent, CurrentBinaryStart) 
-        CurrentBinaryStart += 2
-        InformationDataSize	= struct.unpack_from('>H', fileContent, CurrentBinaryStart)
-        CurrentBinaryStart += 2
+        InformationType, InformationDataSize  = struct.unpack_from('>HH', fileContent, Pointer) 
+        Pointer += 4
+        
         # Observation point information
-        LatitudeHex  = binascii.hexlify(fileContent[CurrentBinaryStart:CurrentBinaryStart+4]) 
-        StationLatitude = BCDLatToFloat(LatitudeHex)
-        CurrentBinaryStart += 4
-        LongitudeHex	= binascii.hexlify(fileContent[CurrentBinaryStart:CurrentBinaryStart+4]) 
-        StationLongitude = BCDLongToFloat(LongitudeHex)
-        CurrentBinaryStart += 4
-        ElevationHex	= binascii.hexlify(fileContent[CurrentBinaryStart:CurrentBinaryStart+4])
-        StationElevation = BCDElevationToFloat(ElevationHex) 
-        CurrentBinaryStart += 4
-        ObservationPointCode = str((fileContent[CurrentBinaryStart:CurrentBinaryStart+12]).decode('ascii').rstrip('\x00')) 
-        CurrentBinaryStart += 12
-        DataStartTime = binascii.hexlify(fileContent[CurrentBinaryStart:CurrentBinaryStart+8])  
-        CurrentBinaryStart += 8
-        MeasurementTimeLength = struct.unpack_from('>I', fileContent, CurrentBinaryStart) 
-        CurrentBinaryStart += 4
-        LastTimeCalibration = binascii.hexlify(fileContent[CurrentBinaryStart:CurrentBinaryStart+8])  
-        CurrentBinaryStart += 8
-        CalibrationMethod = struct.unpack_from('>B', fileContent, CurrentBinaryStart)
-        CurrentBinaryStart += 1
-        GeodeticSystem = struct.unpack_from('>B', fileContent, CurrentBinaryStart)
-        CurrentBinaryStart += 1
-        SeismometerModelCode = binascii.hexlify(fileContent[CurrentBinaryStart:CurrentBinaryStart+2])  
-        CurrentBinaryStart += 2
-        SamplingRate = struct.unpack_from('>H', fileContent, CurrentBinaryStart)
-        CurrentBinaryStart += 2
-        NumberOfComponents = struct.unpack_from('>B', fileContent, CurrentBinaryStart)
-        CurrentBinaryStart += 1
-        RelocationFlag = struct.unpack_from('>B', fileContent, CurrentBinaryStart)
-        CurrentBinaryStart += 1
-
+        LatitudeHex, LongitudeHex  = binascii.hexlify(fileContent[Pointer:Pointer+4]), binascii.hexlify(fileContent[Pointer+4:Pointer+8])
+        StationLatitude, StationLongitude = BCDToFloat(LatitudeHex), BCDToFloat(LongitudeHex)
+        Pointer += 8
+        
+        ElevationHex, Pointer	= binascii.hexlify(fileContent[Pointer:Pointer+4]),Pointer + 4
+        StationElevation = BCDToFloat(ElevationHex,8,2) 
+        
+        ObservationPointCode, Pointer = str((fileContent[Pointer:Pointer+12]).decode('ascii').rstrip('\x00')), Pointer + 12
+        
+        DataStartTime, Pointer = binascii.hexlify(fileContent[Pointer:Pointer+8]),  Pointer + 8
+        MeasurementTimeLength = struct.unpack_from('>I', fileContent, Pointer) 
+        Pointer += 4
+        LastTimeCalibration, Pointer = binascii.hexlify(fileContent[Pointer:Pointer+8]),Pointer + 8
+        
+        CalibrationMethod, GeodeticSystem = struct.unpack_from('>BB', fileContent, Pointer)
+        Pointer += 2
+        SeismometerModelCode = binascii.hexlify(fileContent[Pointer:Pointer+2])  
+        Pointer += 2
+        SamplingRate,NumberOfComponents,RelocationFlag = struct.unpack_from('>HBB', fileContent, Pointer)
+        Pointer += 4
+        
+        
         #Information about the north-south component (NS)
-        NS_ORG_ID = struct.unpack_from('>B', fileContent, CurrentBinaryStart)
-        CurrentBinaryStart += 1
-        NS_OBS_ID = struct.unpack_from('>B', fileContent, CurrentBinaryStart)
-        CurrentBinaryStart += 1
-        NS_CHN_ID = binascii.hexlify(fileContent[CurrentBinaryStart:CurrentBinaryStart+2])
-        CurrentBinaryStart += 2
-        NS_SCALE_FACTOR_NUMERATOR = struct.unpack_from('>h', fileContent, CurrentBinaryStart)[0]
-        CurrentBinaryStart += 2
-        NS_GAIN = binascii.hexlify(fileContent[CurrentBinaryStart:CurrentBinaryStart+1])
-        CurrentBinaryStart += 1
-        NS_UNIT = struct.unpack_from('>B', fileContent, CurrentBinaryStart)[0]
-        CurrentBinaryStart += 1
-        NS_SCALE_FACTOR_DENOMINATOR = struct.unpack_from('>i', fileContent, CurrentBinaryStart)[0]
-        CurrentBinaryStart += 4
-        NS_OFFSET = struct.unpack_from('>i', fileContent, CurrentBinaryStart)[0]
-        CurrentBinaryStart += 4
-        NS_MEASUREMENT_RANGE = struct.unpack_from('>i', fileContent, CurrentBinaryStart)[0]
-        CurrentBinaryStart += 4
-
+        NS_ORG_ID, NS_OBS_ID = struct.unpack_from('>BB', fileContent, Pointer)
+        Pointer += 2
+        
+        NS_CHN_ID, NS_SCALE_FACTOR_NUMERATOR,NS_GAIN = struct.unpack_from('>HhB', fileContent, Pointer)
+        Pointer += 5
+        NS_UNIT = fileContent[Pointer:Pointer+1]
+        Pointer += 1
+        NS_UNIT_POWER, NS_UNIT_TYPE = KNETUnitHandler(NS_UNIT)
+        NS_SCALE_FACTOR_DENOMINATOR,NS_OFFSET,NS_MEASUREMENT_RANGE = struct.unpack_from('>iii', fileContent, Pointer)
+        Pointer += 12
+        
         #Information about the north-south component (EW)
-        EW_ORG_ID = struct.unpack_from('>B', fileContent, CurrentBinaryStart)
-        CurrentBinaryStart += 1
-        EW_OBS_ID = struct.unpack_from('>B', fileContent, CurrentBinaryStart)
-        CurrentBinaryStart += 1
-        EW_CHN_ID = binascii.hexlify(fileContent[CurrentBinaryStart:CurrentBinaryStart+2])
-        CurrentBinaryStart += 2
-        EW_SCALE_FACTOR_NUMERATOR = struct.unpack_from('>h', fileContent, CurrentBinaryStart)[0]
-        CurrentBinaryStart += 2
-        EW_GAIN = struct.unpack_from('>B', fileContent, CurrentBinaryStart)[0]
-        CurrentBinaryStart += 1
-        EW_UNIT = struct.unpack_from('>B', fileContent, CurrentBinaryStart)[0]
-        CurrentBinaryStart += 1
-        EW_SCALE_FACTOR_DENOMINATOR = struct.unpack_from('>i', fileContent, CurrentBinaryStart)[0]
-        CurrentBinaryStart += 4
-        EW_OFFSET = struct.unpack_from('>i', fileContent, CurrentBinaryStart)[0]
-        CurrentBinaryStart += 4
-        EW_MEASUREMENT_RANGE = struct.unpack_from('>i', fileContent, CurrentBinaryStart)[0]
-        CurrentBinaryStart += 4
-
+        UD_ORG_ID, UD_OBS_ID = struct.unpack_from('>BB', fileContent, Pointer)
+        Pointer += 2
+        
+        EW_CHN_ID, EW_SCALE_FACTOR_NUMERATOR,EW_GAIN = struct.unpack_from('>HhB', fileContent, Pointer)
+        Pointer += 5
+        EW_UNIT = fileContent[Pointer:Pointer+1]
+        Pointer += 1
+        EW_UNIT_POWER, EW_UNIT_TYPE = KNETUnitHandler(EW_UNIT)
+        EW_SCALE_FACTOR_DENOMINATOR,EW_OFFSET,EW_MEASUREMENT_RANGE = struct.unpack_from('>iii', fileContent, Pointer)
+        Pointer += 12
+        
         #Information about the north-south component (UD)
-        UD_ORG_ID = struct.unpack_from('>B', fileContent, CurrentBinaryStart)
-        CurrentBinaryStart += 1
-        UD_OBS_ID = struct.unpack_from('>B', fileContent, CurrentBinaryStart)
-        CurrentBinaryStart += 1
-        UD_CHN_ID = binascii.hexlify(fileContent[CurrentBinaryStart:CurrentBinaryStart+2])
-        CurrentBinaryStart += 2
-        UD_SCALE_FACTOR_NUMERATOR = struct.unpack_from('>h', fileContent, CurrentBinaryStart)[0]
-        CurrentBinaryStart += 2
-        UD_GAIN = struct.unpack_from('>B', fileContent, CurrentBinaryStart)[0]
-        CurrentBinaryStart += 1
-        UD_UNIT = struct.unpack_from('>B', fileContent, CurrentBinaryStart)[0]
-        CurrentBinaryStart += 1
-        UD_SCALE_FACTOR_DENOMINATOR = struct.unpack_from('>i', fileContent, CurrentBinaryStart)[0]
-        CurrentBinaryStart += 4
-        UD_OFFSET = struct.unpack_from('>i', fileContent, CurrentBinaryStart)[0]
-        CurrentBinaryStart += 4
-        UD_MEASUREMENT_RANGE = struct.unpack_from('>i', fileContent, CurrentBinaryStart)[0]
-        CurrentBinaryStart += 4
-
-        #Information data block (2) Earthquake information *This information data block is not included in the case of immediate release data
-        EQ_INFORMATION_TYPE = struct.unpack_from('>h', fileContent, CurrentBinaryStart)
-        CurrentBinaryStart += 2
-        EQ_INFORMATION_SIZE = struct.unpack_from('>h', fileContent, CurrentBinaryStart)
-        CurrentBinaryStart += 2
-
-        EQ_OT = binascii.hexlify(fileContent[CurrentBinaryStart:CurrentBinaryStart+8])  
-        EQOT = parse_earthquake_time(EQ_OT.decode('ASCII'))
-        CurrentBinaryStart += 8
-        EQ_LatitudeHex  = binascii.hexlify(fileContent[CurrentBinaryStart:CurrentBinaryStart+4]) 
-        EQ_Latitude = BCDLatToFloat(EQ_LatitudeHex)
-        CurrentBinaryStart += 4
-        EQ_LongitudeHex	= binascii.hexlify(fileContent[CurrentBinaryStart:CurrentBinaryStart+4]) 
-        EQ_Longitude = BCDLongToFloat(EQ_LongitudeHex)
-        CurrentBinaryStart += 4
-        EQ_DepthHex	= binascii.hexlify(fileContent[CurrentBinaryStart:CurrentBinaryStart+4]) 
-        EQ_Depth = BCDEQDepth(EQ_DepthHex)
-        CurrentBinaryStart += 4
-        EQ_SCALEHex = binascii.hexlify(fileContent[CurrentBinaryStart:CurrentBinaryStart+1]) 
-        EQ_Scale = BCDEQScale(EQ_SCALEHex)
-        CurrentBinaryStart += 1
-        EQ_GeodeticSystem = struct.unpack_from('>B', fileContent, CurrentBinaryStart)
-        CurrentBinaryStart += 1
-        EQ_EpicenterType = struct.unpack_from('>B', fileContent, CurrentBinaryStart)
-        CurrentBinaryStart += 1
-        EQ_Reservation = struct.unpack_from('>B', fileContent, CurrentBinaryStart)
-        CurrentBinaryStart += 1
-
+        UD_ORG_ID, UD_OBS_ID = struct.unpack_from('>BB', fileContent, Pointer)
+        Pointer += 2
+        
+        UD_CHN_ID, UD_SCALE_FACTOR_NUMERATOR,UD_GAIN = struct.unpack_from('>HhB', fileContent, Pointer)
+        Pointer += 5
+        UD_UNIT = fileContent[Pointer:Pointer+1]
+        Pointer += 1
+        UD_UNIT_POWER, UD_UNIT_TYPE = KNETUnitHandler(UD_UNIT)
+        UD_SCALE_FACTOR_DENOMINATOR,UD_OFFSET,UD_MEASUREMENT_RANGE = struct.unpack_from('>iii', fileContent, Pointer)
+        Pointer += 12
+        
+        if DataBlockLength == 144:
+            EQ_INFORMATION_TYPE = struct.unpack_from('>h', fileContent, Pointer)
+            Pointer += 2
+            EQ_INFORMATION_SIZE = struct.unpack_from('>h', fileContent, Pointer)
+            Pointer += 2
+            
+            EQ_OT = binascii.hexlify(fileContent[Pointer:Pointer+8])  
+            EQOT = ParseTime(EQ_OT.decode('ASCII'))
+            Pointer += 8
+            EQ_LatitudeHex  = binascii.hexlify(fileContent[Pointer:Pointer+4]) 
+            EQ_Latitude = BCDToFloat(EQ_LatitudeHex)
+            Pointer += 4
+            EQ_LongitudeHex	= binascii.hexlify(fileContent[Pointer:Pointer+4]) 
+            EQ_Longitude = BCDToFloat(EQ_LongitudeHex)
+            Pointer += 4
+            EQ_DepthHex	= binascii.hexlify(fileContent[Pointer:Pointer+4]) 
+            EQ_Depth = BCDToFloat(EQ_DepthHex,8,3)
+            Pointer += 4
+            EQ_SCALEHex = binascii.hexlify(fileContent[Pointer:Pointer+1]) 
+            EQ_Scale = BCDToFloat(EQ_SCALEHex,2,1)
+            Pointer += 1
+            EQ_GeodeticSystem, EQ_EpicenterType, EQ_Reservation = struct.unpack_from('>BBB', fileContent, Pointer)
+            Pointer += 3
+        
         GM_DIRECTION = ["NS","EW","UD"]
         GM_TYPE = 0
         GROUND_MOTION_ARRAY = np.zeros((3,1))
         DIRECTION_TIME_SERIES = [0,0,0]
         CHECK = 0
         while True:
-            First_Sampling_time = binascii.hexlify(fileContent[CurrentBinaryStart:CurrentBinaryStart+8])  
+            First_Sampling_time = binascii.hexlify(fileContent[Pointer:Pointer+8])  
             if (First_Sampling_time).decode("ASCII") == '':
                 break
-            CurrentBinaryStart += 8
-            Frame_Duration = struct.unpack_from('>i', fileContent, CurrentBinaryStart) 
-            CurrentBinaryStart += 4
-            Data_Block_Length = struct.unpack_from('>i', fileContent, CurrentBinaryStart) 
-            CurrentBinaryStart += 4
+            Pointer += 8
+            Frame_Duration = struct.unpack_from('>i', fileContent, Pointer) 
+            Pointer += 4
+            Data_Block_Length = struct.unpack_from('>i', fileContent, Pointer) 
+            Pointer += 4
             NUMPY_INIT = 0 
             while GM_TYPE <= 2:
                 ### Change to Assert for Sanity Check
-                DIR_ORG_ID = struct.unpack_from('>B', fileContent, CurrentBinaryStart)
-                CurrentBinaryStart += 1
-                DIR_OBS_ID = struct.unpack_from('>B', fileContent, CurrentBinaryStart)
-                CurrentBinaryStart += 1
-                NS_CHN_ID = struct.unpack_from('>H', fileContent, CurrentBinaryStart)
-                CurrentBinaryStart += 2
+                DIR_ORG_ID = struct.unpack_from('>B', fileContent, Pointer)
+                Pointer += 1
+                DIR_OBS_ID = struct.unpack_from('>B', fileContent, Pointer)
+                Pointer += 1
+                NS_CHN_ID = struct.unpack_from('>H', fileContent, Pointer)
+                Pointer += 2
                 ### Compressed Data Reading
-                SAMPLE_DATA = binascii.hexlify(fileContent[CurrentBinaryStart:CurrentBinaryStart+2])
+                SAMPLE_DATA = binascii.hexlify(fileContent[Pointer:Pointer+2])
                 SAMPLE_SIZE_TYPE = SAMPLE_DATA[0:1].decode('ascii')
                 NUMBER_OF_SAMPLE = SAMPLE_DATA[1:].decode('ascii')
                 NUMBER_OF_SAMPLE = HexToBinary(NUMBER_OF_SAMPLE)
-                CurrentBinaryStart += 2
-
+                Pointer += 2
+        
                 if NUMPY_INIT == 0:
                     GROUND_MOTION_ARRAY = np.concatenate((GROUND_MOTION_ARRAY,np.zeros((3,NUMBER_OF_SAMPLE))),axis=1)
                     NUMPY_INIT = 1
-                if SAMPLE_SIZE_TYPE == '2':
+                    
+                if SAMPLE_SIZE_TYPE == '4':
+                    DifferenceData = 4
+                elif SAMPLE_SIZE_TYPE == '3':
+                    DifferenceData = 3
+                elif SAMPLE_SIZE_TYPE == '2':
                     DifferenceData = 2
                 elif SAMPLE_SIZE_TYPE == '1':
                     DifferenceData = 1
-                else:
-                    print("ERROR")
+                    
                 for x in range(NUMBER_OF_SAMPLE):
                     if x == 0:       
-                        FIRST_SAMPLE_VALUE = struct.unpack_from('>i', fileContent, CurrentBinaryStart)
-                        CurrentBinaryStart += 4
+                        FIRST_SAMPLE_VALUE = struct.unpack_from('>i', fileContent, Pointer)
+                        Pointer += 4
                         GROUND_MOTION_ARRAY[GM_TYPE,DIRECTION_TIME_SERIES[GM_TYPE]] = FIRST_SAMPLE_VALUE[0]
                         CURRENT_VALUE = FIRST_SAMPLE_VALUE[0]
                         DIRECTION_TIME_SERIES[GM_TYPE] += 1
                     else:
-                        if DifferenceData == 2:
-                            DiffValue = struct.unpack_from('>h', fileContent, CurrentBinaryStart)
-                        elif DifferenceData == 1:
-                            DiffValue = struct.unpack_from('>b', fileContent, CurrentBinaryStart)
+                        if SAMPLE_SIZE_TYPE != "0":
+                            DiffValue = int.from_bytes(fileContent[Pointer:Pointer+DifferenceData],'big',signed=True)    
+                            Pointer += DifferenceData
+                            CURRENT_VALUE = CURRENT_VALUE + DiffValue
+                            GROUND_MOTION_ARRAY[GM_TYPE,DIRECTION_TIME_SERIES[GM_TYPE]] = CURRENT_VALUE
+                            DIRECTION_TIME_SERIES[GM_TYPE] += 1
+                        else:
+                            byte = fileContent[Pointer:Pointer+1][0]
+                            high_nibble = (byte >> 4) & 0x0F
+                            low_nibble = byte & 0x0F
+                            CURRENT_VALUE = CURRENT_VALUE + high_nibble
+                            GROUND_MOTION_ARRAY[GM_TYPE,DIRECTION_TIME_SERIES[GM_TYPE]] = CURRENT_VALUE
+                            DIRECTION_TIME_SERIES[GM_TYPE] += 1
+                            CURRENT_VALUE = CURRENT_VALUE + low_nibble
+                            GROUND_MOTION_ARRAY[GM_TYPE,DIRECTION_TIME_SERIES[GM_TYPE]] = CURRENT_VALUE
+                            DIRECTION_TIME_SERIES[GM_TYPE] += 1
+                            Pointer += 1
         
-                        CurrentBinaryStart += DifferenceData
-                        CURRENT_VALUE = CURRENT_VALUE + DiffValue[0]
-                        GROUND_MOTION_ARRAY[GM_TYPE,DIRECTION_TIME_SERIES[GM_TYPE]] = CURRENT_VALUE
-                        DIRECTION_TIME_SERIES[GM_TYPE] += 1
                 GM_TYPE += 1
             GM_TYPE = 0
-
-        GROUND_MOTION_ARRAY[0] = GROUND_MOTION_ARRAY[0] - NS_OFFSET
-        GROUND_MOTION_ARRAY[0] = GROUND_MOTION_ARRAY[0] *  (NS_SCALE_FACTOR_NUMERATOR/NS_SCALE_FACTOR_DENOMINATOR) 
-
-        GROUND_MOTION_ARRAY[1] = GROUND_MOTION_ARRAY[1] - EW_OFFSET
-        GROUND_MOTION_ARRAY[1] = GROUND_MOTION_ARRAY[1] *  (EW_SCALE_FACTOR_NUMERATOR/EW_SCALE_FACTOR_DENOMINATOR) 
-
-        GROUND_MOTION_ARRAY[2] = GROUND_MOTION_ARRAY[2] - UD_OFFSET
-        GROUND_MOTION_ARRAY[2] = GROUND_MOTION_ARRAY[2] *  (UD_SCALE_FACTOR_NUMERATOR/UD_SCALE_FACTOR_DENOMINATOR)
-
+        
+        if CONVERT_RESULT:
+            GROUND_MOTION_ARRAY[0] = GROUND_MOTION_ARRAY[0] - NS_OFFSET
+            GROUND_MOTION_ARRAY[0] = GROUND_MOTION_ARRAY[0] *  (NS_SCALE_FACTOR_NUMERATOR/NS_SCALE_FACTOR_DENOMINATOR) * 10**(-NS_UNIT_POWER)
+            
+            GROUND_MOTION_ARRAY[1] = GROUND_MOTION_ARRAY[1] - EW_OFFSET
+            GROUND_MOTION_ARRAY[1] = GROUND_MOTION_ARRAY[1] *  (EW_SCALE_FACTOR_NUMERATOR/EW_SCALE_FACTOR_DENOMINATOR)  * 10**(-EW_UNIT_POWER)
+            
+            GROUND_MOTION_ARRAY[2] = GROUND_MOTION_ARRAY[2] - UD_OFFSET
+            GROUND_MOTION_ARRAY[2] = GROUND_MOTION_ARRAY[2] *  (UD_SCALE_FACTOR_NUMERATOR/UD_SCALE_FACTOR_DENOMINATOR) * 10**(-UD_UNIT_POWER)
+        
         GROUND_MOTION_ARRAY = GROUND_MOTION_ARRAY[:,:-1]
-
+        
         metadata = {}
-        metadata["Earthquake"] = {}
-        metadata["Earthquake"]["OT"] =(EQOT.isoformat(timespec='milliseconds'))
-        metadata["Earthquake"]["EQScale"] = EQ_Scale
-        metadata["Earthquake"]["Latitude"] = EQ_Latitude
-        metadata["Earthquake"]["Longitude"] = EQ_Longitude
-        metadata["Earthquake"]["Depth"] = EQ_Depth
+        if DataBlockLength == 144:
+            metadata["Earthquake"] = {}
+            metadata["Earthquake"]["OT"] =(EQOT.isoformat(timespec='milliseconds'))
+            metadata["Earthquake"]["EQScale"] = EQ_Scale
+            metadata["Earthquake"]["Latitude"] = EQ_Latitude
+            metadata["Earthquake"]["Longitude"] = EQ_Longitude
+            metadata["Earthquake"]["Depth"] = EQ_Depth
         metadata["StationData"] = {}
         metadata["StationData"]["StationID"] = ObservationPointCode
         metadata["StationData"]["Latitude"] = StationLatitude
         metadata["StationData"]["Longitude"] = StationLongitude
         metadata["StationData"]["Elevation"] = StationElevation
+        metadata["Recording"] = {}
+        RecordingStartTime = (ParseTime(DataStartTime.decode('ASCII')) - timedelta(hours=9))
+        metadata["Recording"]["StartTimeUTC"]  = RecordingStartTime.isoformat(timespec='milliseconds')
+        metadata["Recording"]["EndTimeUTC"]  = (RecordingStartTime + timedelta(seconds=MeasurementTimeLength[0]*0.1)).isoformat(timespec='milliseconds')
+        metadata["Recording"]["SamplingRateHZ"]  = SamplingRate
+        metadata["Recording"]["CalibrationNS"] = NS_SCALE_FACTOR_NUMERATOR/NS_SCALE_FACTOR_DENOMINATOR * 10**(-NS_UNIT_POWER)
+        metadata["Recording"]["OffsetNS"] = NS_OFFSET
+        metadata["Recording"]["UnitNS"] = EW_UNIT_TYPE
+
+        metadata["Recording"]["CalibrationEW"] = EW_SCALE_FACTOR_NUMERATOR/EW_SCALE_FACTOR_DENOMINATOR * 10**(-EW_UNIT_POWER)
+        metadata["Recording"]["OffsetEW"] = EW_OFFSET
+        metadata["Recording"]["UnitEW"] = EW_UNIT_TYPE
+
+        metadata["Recording"]["CalibrationUD"] = UD_SCALE_FACTOR_NUMERATOR/UD_SCALE_FACTOR_DENOMINATOR * 10**(-UD_UNIT_POWER)
+        metadata["Recording"]["OffsetUD"] = UD_OFFSET
+        metadata["Recording"]["UnitUD"] = UD_UNIT_TYPE
+
+        
         
         return GROUND_MOTION_ARRAY, metadata
