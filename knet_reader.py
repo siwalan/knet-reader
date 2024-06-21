@@ -226,37 +226,37 @@ def parse_knet_data(filepath,CONVERT_RESULT=False):
                 elif SAMPLE_SIZE_TYPE == 1:
                     DifferenceData = 1
                 x = 0
-                while x < (NUMBER_OF_SAMPLE):
-                    if x == 0:       
-                        FIRST_SAMPLE_VALUE = struct.unpack_from('>i', fileContent, Pointer)
-                        Pointer += 4
-                        GROUND_MOTION_ARRAY[GM_TYPE,DIRECTION_TIME_SERIES[GM_TYPE]] = FIRST_SAMPLE_VALUE[0]
-                        CURRENT_VALUE = FIRST_SAMPLE_VALUE[0]
+            while x < (NUMBER_OF_SAMPLE):
+                if x == 0:       
+                    FIRST_SAMPLE_VALUE = struct.unpack_from('>i', fileContent, Pointer)
+                    Pointer += 4
+                    GROUND_MOTION_ARRAY[GM_TYPE,DIRECTION_TIME_SERIES[GM_TYPE]] = FIRST_SAMPLE_VALUE[0]
+                    CURRENT_VALUE = FIRST_SAMPLE_VALUE[0]
+                    DIRECTION_TIME_SERIES[GM_TYPE] += 1
+                    x += 1
+                else:
+                    if SAMPLE_SIZE_TYPE != 0:
+                        DiffValue = int.from_bytes(fileContent[Pointer:Pointer+DifferenceData],'big',signed=True)    
+                        Pointer += DifferenceData
+                        CURRENT_VALUE = CURRENT_VALUE + DiffValue
+                        GROUND_MOTION_ARRAY[GM_TYPE,DIRECTION_TIME_SERIES[GM_TYPE]] = CURRENT_VALUE
                         DIRECTION_TIME_SERIES[GM_TYPE] += 1
                         x += 1
                     else:
-                        if SAMPLE_SIZE_TYPE != 0:
-                            DiffValue = int.from_bytes(fileContent[Pointer:Pointer+DifferenceData],'big',signed=True)    
-                            Pointer += DifferenceData
-                            CURRENT_VALUE = CURRENT_VALUE + DiffValue
+                        byte = fileContent[Pointer:Pointer+1]
+                        Pointer += 1	
+                        bit_stream = BitStream(byte)
+                        high_nibble = bit_stream.read('int:4')
+                        low_nibble = bit_stream.read('int:4')
+                        CURRENT_VALUE = CURRENT_VALUE + high_nibble
+                        GROUND_MOTION_ARRAY[GM_TYPE,DIRECTION_TIME_SERIES[GM_TYPE]] = CURRENT_VALUE
+                        DIRECTION_TIME_SERIES[GM_TYPE] += 1
+                        x += 1
+                        if  x < NUMBER_OF_SAMPLE and NUMBER_OF_SAMPLE % 2 == 0:
+                            CURRENT_VALUE = CURRENT_VALUE + low_nibble
                             GROUND_MOTION_ARRAY[GM_TYPE,DIRECTION_TIME_SERIES[GM_TYPE]] = CURRENT_VALUE
                             DIRECTION_TIME_SERIES[GM_TYPE] += 1
-                            x += 1
-                        else:
-                            byte = fileContent[Pointer:Pointer+1]
-                            bit_stream = BitStream(byte)
-                            high_nibble = bit_stream.read('int:4')
-                            low_nibble = bit_stream.read('int:4')
-                            CURRENT_VALUE = CURRENT_VALUE + high_nibble
-                            GROUND_MOTION_ARRAY[GM_TYPE,DIRECTION_TIME_SERIES[GM_TYPE]] = CURRENT_VALUE
-                            DIRECTION_TIME_SERIES[GM_TYPE] += 1
-                            x += 1
-                            if not x <= NUMBER_OF_SAMPLE and NUMBER_OF_SAMPLE % 2 == 0:
-                                CURRENT_VALUE = CURRENT_VALUE + low_nibble
-                                GROUND_MOTION_ARRAY[GM_TYPE,DIRECTION_TIME_SERIES[GM_TYPE]+1] = CURRENT_VALUE
-                                DIRECTION_TIME_SERIES[GM_TYPE] += 1
-                                Pointer += 1	
-                            x += 1
+                        x += 1
 
         
                 GM_TYPE += 1
