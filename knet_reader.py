@@ -251,11 +251,11 @@ def parse_knet_data(filepath,CONVERT_RESULT=False):
                             GROUND_MOTION_ARRAY[GM_TYPE,DIRECTION_TIME_SERIES[GM_TYPE]] = CURRENT_VALUE
                             DIRECTION_TIME_SERIES[GM_TYPE] += 1
                             x += 1
-                            if not x == NUMBER_OF_SAMPLE and NUMBER_OF_SAMPLE % 2 == 0:
+                            if not x <= NUMBER_OF_SAMPLE and NUMBER_OF_SAMPLE % 2 == 0:
                                 CURRENT_VALUE = CURRENT_VALUE + low_nibble
                                 GROUND_MOTION_ARRAY[GM_TYPE,DIRECTION_TIME_SERIES[GM_TYPE]+1] = CURRENT_VALUE
                                 DIRECTION_TIME_SERIES[GM_TYPE] += 1
-                            Pointer += 1	
+                                Pointer += 1	
                             x += 1
 
         
