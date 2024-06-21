@@ -4,6 +4,7 @@ import numpy as np
 import os
 import json
 from datetime import datetime, timedelta
+from bitstring import BitStream
 
 ##### HELPER FUNCTION ######    
 def BCDToFloat(BCD,NumDigit=8, SigDigit=5):
@@ -205,50 +206,56 @@ def parse_knet_data(filepath,CONVERT_RESULT=False):
                 NS_CHN_ID = struct.unpack_from('>H', fileContent, Pointer)
                 Pointer += 2
                 ### Compressed Data Reading
-                SAMPLE_DATA = binascii.hexlify(fileContent[Pointer:Pointer+2])
-                SAMPLE_SIZE_TYPE = SAMPLE_DATA[0:1].decode('ascii')
-                NUMBER_OF_SAMPLE = SAMPLE_DATA[1:].decode('ascii')
-                NUMBER_OF_SAMPLE = HexToBinary(NUMBER_OF_SAMPLE)
+                SAMPLE_DATA = (fileContent[Pointer:Pointer+2])
+                bit_stream = BitStream(SAMPLE_DATA)
+                SAMPLE_SIZE_TYPE = bit_stream.read('uint:4')
+                NUMBER_OF_SAMPLE = bit_stream.read('uint:12')
+        
                 Pointer += 2
         
                 if NUMPY_INIT == 0:
                     GROUND_MOTION_ARRAY = np.concatenate((GROUND_MOTION_ARRAY,np.zeros((3,NUMBER_OF_SAMPLE))),axis=1)
                     NUMPY_INIT = 1
                     
-                if SAMPLE_SIZE_TYPE == '4':
+                if SAMPLE_SIZE_TYPE == 4:
                     DifferenceData = 4
-                elif SAMPLE_SIZE_TYPE == '3':
+                elif SAMPLE_SIZE_TYPE == 3:
                     DifferenceData = 3
-                elif SAMPLE_SIZE_TYPE == '2':
+                elif SAMPLE_SIZE_TYPE == 2:
                     DifferenceData = 2
-                elif SAMPLE_SIZE_TYPE == '1':
+                elif SAMPLE_SIZE_TYPE == 1:
                     DifferenceData = 1
-                    
-                for x in range(NUMBER_OF_SAMPLE):
+                x = 0
+                while x < (NUMBER_OF_SAMPLE):
                     if x == 0:       
                         FIRST_SAMPLE_VALUE = struct.unpack_from('>i', fileContent, Pointer)
                         Pointer += 4
                         GROUND_MOTION_ARRAY[GM_TYPE,DIRECTION_TIME_SERIES[GM_TYPE]] = FIRST_SAMPLE_VALUE[0]
                         CURRENT_VALUE = FIRST_SAMPLE_VALUE[0]
                         DIRECTION_TIME_SERIES[GM_TYPE] += 1
+                        x += 1
                     else:
-                        if SAMPLE_SIZE_TYPE != "0":
+                        if SAMPLE_SIZE_TYPE != 0:
                             DiffValue = int.from_bytes(fileContent[Pointer:Pointer+DifferenceData],'big',signed=True)    
                             Pointer += DifferenceData
                             CURRENT_VALUE = CURRENT_VALUE + DiffValue
                             GROUND_MOTION_ARRAY[GM_TYPE,DIRECTION_TIME_SERIES[GM_TYPE]] = CURRENT_VALUE
                             DIRECTION_TIME_SERIES[GM_TYPE] += 1
+                            x += 1
                         else:
-                            byte = fileContent[Pointer:Pointer+1][0]
-                            high_nibble = (byte >> 4) & 0x0F
-                            low_nibble = byte & 0x0F
+                            byte = fileContent[Pointer:Pointer+1]
+                            bit_stream = BitStream(byte)
+                            high_nibble = bit_stream.read('int:4')
+                            low_nibble = bit_stream.read('int:4')
                             CURRENT_VALUE = CURRENT_VALUE + high_nibble
                             GROUND_MOTION_ARRAY[GM_TYPE,DIRECTION_TIME_SERIES[GM_TYPE]] = CURRENT_VALUE
                             DIRECTION_TIME_SERIES[GM_TYPE] += 1
                             CURRENT_VALUE = CURRENT_VALUE + low_nibble
                             GROUND_MOTION_ARRAY[GM_TYPE,DIRECTION_TIME_SERIES[GM_TYPE]] = CURRENT_VALUE
                             DIRECTION_TIME_SERIES[GM_TYPE] += 1
-                            Pointer += 1
+                            Pointer += 1	
+                            x += 2
+
         
                 GM_TYPE += 1
             GM_TYPE = 0
